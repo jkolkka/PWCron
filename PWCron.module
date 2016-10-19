@@ -1,0 +1,29 @@
+<?php
+/**
+ * PWCron - Cron implementation for ProcessWire
+ *
+ * @author Joonas Kolkka <joonas.kolkka@comspot.fi>
+ */
+
+class PWCron extends Process implements Module{
+  public function __construct() {
+      
+  }
+  public static function getModuleInfo() {
+    return array(
+      'title' => 'PWCRon', 
+      'version' => 100, 
+      'summary' => 'Cron implementation fro Processwire',
+      'href' => 'http://comspot.fi',
+      'singular' => true, 
+      'autoload' => false,
+      'permission' => 'comspot-messenger',
+      'permissions' => array(
+        'comspot-messenger' => 'Comspot Messenger'
+      ),
+    );
+  }
+    
+  public function init() {
+		
+  }
