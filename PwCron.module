@@ -1,0 +1,178 @@
+<?php namespace ProcessWire;
+
+/**
+ * PwCron - Cron implementation for ProcessWire
+ *
+ * @author Joonas Kolkka <joonas.kolkka@comspot.fi>
+ * @author Ville Sulin <ville.sulin@comspot.fi>
+ */
+
+class PwCron extends Process implements Module, ConfigurableModule {
+
+    private $runstateData;
+
+    public function __construct() {
+        foreach(self::getDefaultConfigData() as $key => $value) {
+            $this->$key = $value;
+        }
+        $this->runstateData = new \StdClass();
+    }
+
+    static public function getModuleInfo() {
+        return array(
+            'title'    => 'PwCron',
+            'version'  => 300,
+            'author'   => 'Ville Sulin & Joonas Kolkka',
+            'summary'  => 'Cron implementation for Processwire',
+            'href'     => 'https://processwire.com/talk/topic/14572-pwcron/',
+            'singular' => true,
+            'autoload' => false,
+        );
+    }
+
+    static private function getDefaultConfigData() {
+        return array(
+            "runconfig" => "",
+            "runstate" => "",
+        );
+    }
+
+    public function init() {
+        /** Read runstate and seperate lines */
+        $lines = explode("\n", $this->runstate);
+        /** Loop trough lines */
+        foreach ($lines as $line) {
+            /** Seperate running info */
+            $l = explode(";", $line);
+
+            /** Check if line has enough data */
+            if(count($l) != 5) continue;
+            /** Check if module exists and if not, create it */
+            if(!isset($this->runstateData->{$l[0]})) {
+                $this->runstateData->{$l[0]} = new \StdClass();
+            }
+            /** Set method run data to new object */
+            $this->runstateData->{$l[0]}->{$l[1]} = new \StdClass();
+            $this->runstateData->{$l[0]}->{$l[1]}->last_start = $l[2];
+            $this->runstateData->{$l[0]}->{$l[1]}->last_done = $l[3];
+            $this->runstateData->{$l[0]}->{$l[1]}->last_status = $l[4];
+        }
+    }
+
+    /**
+     *	method to hook other modules, hook this!
+     **/
+    public function ___cronHook() {
+
+    }
+
+
+    /**
+     *	method that does the magic
+     *
+     *	Method will first read modules configured under runconfig
+     *	and execute them. After that it runs all hooked modules
+     *
+     *	@return boolean true or false
+     **/
+    public function run() {
+        /** Read runconfig and sepereate lines */
+        $lines = explode("\n", $this->runconfig);
+
+        /** Loop trough lines */
+        foreach ($lines as $line) {
+            /** If line is empty, continue */
+            if($line == "") continue;
+            /** Get job information */
+            $l = explode(";", $line);
+
+            /** Check has module been ran */
+            if(!isset($this->runstateData->{$l[0]})) {
+                $this->runstateData->{$l[0]} = new \StdClass();
+            }
+
+            /** Check has method been ran */
+            if(!isset($this->runstateData->{$l[0]}->{$l[1]})) {
+                $this->runstateData->{$l[0]}->{$l[1]} = new \StdClass();
+                $this->runstateData->{$l[0]}->{$l[1]}->last_start =  "";
+                $this->runstateData->{$l[0]}->{$l[1]}->last_done =  "";
+                $this->runstateData->{$l[0]}->{$l[1]}->last_status =  "";
+
+            }
+
+            /** Check is it time to run module again */
+            if (time() > strtotime($l[2], strtotime($this->runstateData->{$l[0]}->{$l[1]}->last_done))) {
+                /** Load module */
+                $module = $this->modules->get($l[0]);
+                /** Update start time */
+                $this->runstateData->{$l[0]}->{$l[1]}->last_start = date("Y-m-d H:i:s", time());
+                /** Start output buffering */
+                ob_start();
+                /** Call method */
+                $returnInfo = $module->{$l[1]}();
+                /** Get buffered output */
+                $output = ob_get_contents();
+                /** Clean output buffer */
+                ob_end_clean();
+                /** Update End time */
+                $this->runstateData->{$l[0]}->{$l[1]}->last_done = date("Y-m-d H:i:s", time());
+            }
+            /** Save running state data after each run */
+            $this->saveRunningStateData();
+        }
+        //if(isset($output)) echo $output;
+        //echo $returnInfo;
+
+        /** Run hooked modules */
+        $this->cronHook();
+    }
+
+    public function install() {
+
+    }
+
+    /**
+     * Save runningstate after each run
+     */
+    private function saveRunningStateData() {
+        $config = $this->wire('modules')->getModuleConfigData('PwCron');
+        $statedata = array();
+        foreach($this->runstateData as $module => $moduledata) {
+            foreach ($moduledata as $method => $methoddata) {
+                array_push($statedata, implode(";", array(
+                    $module,
+                    $method,
+                    $methoddata->last_start,
+                    $methoddata->last_done,
+                    $methoddata->last_status,
+                )));
+            }
+        }
+        $config["runstate"] = implode("\n", $statedata);
+        $this->wire('modules')->saveModuleConfigData('PwCron', $config);
+    }
+
+
+    static public function getModuleConfigInputfields(array $data) {
+
+        $fields = new InputfieldWrapper();
+        $modules = Wire::getFuel('modules');
+
+        $field = $modules->get('InputfieldTextarea');
+        $field->attr('name', 'runconfig');
+        $field->attr('size', 10);
+        $field->attr('value', $data['runconfig']);
+        $field->label = 'Modules to run';
+        $field->description = "Module per line. Syntax: ModuleName;Method;Delay.";
+        $fields->append($field);
+
+        $field = $modules->get('InputfieldTextarea');
+        $field->attr('name', 'runstate');
+        $field->attr('size', 10);
+        $field->attr('value', $data['runstate']);
+        $field->label = 'Info from running crons';
+        $fields->append($field);
+
+        return $fields;
+    }
+}
